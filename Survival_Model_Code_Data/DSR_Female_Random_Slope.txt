@@ -1,0 +1,118 @@
+
+    model {
+
+
+    ## Priors_______________________________
+    
+    # Coefficients for generalized linear model on logit scale
+    b0 ~ dnorm(5, 0.25)
+    b.juv ~ dnorm(0, 1)
+    b.gc ~ dnorm(0, 1)
+    b.cc ~ dnorm(0, 1)
+    b.tph ~ dnorm(0, 1)
+    b.maxveg ~ dnorm(0, 1)
+    b.voveg ~ dnorm(0, 1)
+    
+  # Hyperpriors for random intercept and random slopes
+    sd.int   ~ dunif(0, 5)
+    sd.gc    ~ dunif(0, 5)
+    sd.cc    ~ dunif(0, 5)
+    sd.tph   ~ dunif(0, 5)
+    sd.maxveg~ dunif(0, 5)
+    sd.voveg ~ dunif(0, 5)
+
+    tau.int    <- pow(sd.int,   -2)
+    tau.gc     <- pow(sd.gc,    -2)
+    tau.cc     <- pow(sd.cc,    -2)
+    tau.tph    <- pow(sd.tph,   -2)
+    tau.maxveg <- pow(sd.maxveg,-2)
+    tau.voveg  <- pow(sd.voveg, -2)
+
+  # Site-level random effects (intercept + one slope per covariate)
+  for (s in 1:nsites) {
+    u.int[s]    ~ dnorm(0, tau.int)    # random intercept
+    u.gc[s]     ~ dnorm(0, tau.gc)     # random slope for GC
+    u.cc[s]     ~ dnorm(0, tau.cc)     # random slope for CC
+    u.tph[s]    ~ dnorm(0, tau.tph)    # random slope for TPH
+    u.maxveg[s] ~ dnorm(0, tau.maxveg) # random slope for Max
+    u.voveg[s]  ~ dnorm(0, tau.voveg)  # random slope for VO
+  }
+
+
+    # Impute data for missing predictor values based on mean and SD of data
+    for(i in 1:ninds){
+      GC[i] ~ dnorm(85.6, pow(23.1, -2))T(0,)
+      CC[i] ~ dnorm(64.7, pow(31.2, -2))T(0,)
+      Max[i] ~ dnorm(160, pow(47.9, -2))T(0,)
+      TPH[i] ~ dnorm(8.94, pow(8.74, -2))T(0,)
+      VO[i] ~ dnorm(96.6, pow(51.4, -2))T(0,)
+      Age[i,1] ~ dbin(0.09, 1)
+    }
+    
+    ## Likelihood___________________________
+    
+    for(i in 1:ninds){
+
+    # Initial cumulative survival
+    cumul.q[i,1] <- 1
+    p[i,1] <- 1
+
+      for(j in 2:nobs[i]){
+    
+        # Generalized linear model for daily survival 
+      logit(q[i,j]) <-
+        (b0      + u.int[Site[i]]) +                # site-specific intercept
+        b.juv * Age[i,1] +
+        (b.gc     + u.gc[Site[i]])    * GC[i]  +     # site-specific slope for covariates
+        (b.cc     + u.cc[Site[i]])    * CC[i]  +
+        (b.tph    + u.tph[Site[i]])   * TPH[i] +
+        (b.maxveg + u.maxveg[Site[i]])* Max[i] +
+        (b.voveg  + u.voveg[Site[i]]) * VO[i]         
+    
+        # Conditional probability
+        p[i,j] <- y[i,j-1] * q[i,j]
+    
+        # Cumulative survival
+        cumul.q[i,j] <- q[i,j] * cumul.q[i,j-1]
+    
+        # Observation process
+        y[i,j] ~ dbern(p[i,j])
+    
+      } # end j
+    } # end i
+        
+    ## Loglikelihood calculation for WIAC/model selection____________
+     
+     for(i in 1:ninds){
+       for(j in 2:nobs[i]){
+     
+         loglik[i,j] <- logdensity.bin(y[i,j], p[i,j], 1)
+     
+       } # end j
+     } # end i
+
+    ## Goodness of fit metrics_______________________
+
+    # Sensitivity and specificity for ROC and AUC
+
+    # First set up vector of ps and ys
+    pvec[1:nobs[1]] <- c(p[1, 1:nobs[1]])
+    yvec[1:nobs[1]] <- c(y[1, 1:nobs[1]])
+
+    for(i in 2:ninds){
+      pvec[(sum(nobs[1:(i-1)]) + 1):(sum(nobs[1:i]))] <- c(p[i, 1:nobs[i]])
+      yvec[(sum(nobs[1:(i-1)]) + 1):(sum(nobs[1:i]))] <- c(y[i, 1:nobs[i]])
+    }
+
+    for(t in 1:length(thr)) {
+      sens[t] <- sum((pvec > thr[t]) && (yvec == 1)) / sum(yvec)
+      spec[t] <- sum((pvec < thr[t]) && (yvec == 0)) / (nzeros)
+      fpr[t] <- 1 - spec[t]
+      fnr[t] <- 1 - sens[t]
+    }
+
+    # Calculate area of ROC trapezoid
+    auc <- sum((sens[2:length(sens)] + sens[1:(length(sens) - 1)]) /
+    2 * (fpr[2:length(fpr)] - fpr[1:(length(fpr) - 1)]))
+
+	}
