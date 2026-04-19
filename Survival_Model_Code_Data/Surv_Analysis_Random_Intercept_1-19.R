@@ -27,11 +27,6 @@ library(tidybayes)
 datum <- read.csv("Data/Veg_Survival_Encounter_History_Site.csv") %>%
   select(-X)
 
-
-# Source model code
-source("Rscripts/DSR_Model.R")
-
-
 # Pre-analysis: data summaries and correlations---------------------------------
 
 # Look at ages in data. Because there are so few juveniles, adults will be in 
